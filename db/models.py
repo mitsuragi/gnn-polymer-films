@@ -20,11 +20,10 @@ class Parameter(Base):
     Symbol: Mapped[Optional[str]]
     IdParameterType: Mapped[Optional[int]] = mapped_column(ForeignKey('ParameterTypes.IdParameterType'))
     IdUnit: Mapped[Optional[int]] = mapped_column(ForeignKey('Units.IdUnit'))
-    # IdLine: Mapped[Optional[int]] = mapped_column(ForeignKey('ProductionLines.IdLine'))
 
     ParameterType: Mapped[Optional['ParameterType']] = relationship(back_populates='Parameters')
     Unit: Mapped[Optional['Unit']] = relationship(back_populates='Parameters')
-    ParameterLimits: Mapped[List['Limit']] = relationship(back_populates='Parameters')
+    ParameterLimits: Mapped[List['Limit']] = relationship(back_populates='Parameter')
 
 class ParameterType(Base):
     __tablename__ = 'ParameterTypes'
@@ -115,3 +114,16 @@ class Film(Base):
 
     FilmLimits: Mapped[List['Limit']] = relationship(back_populates='Film')
     Polymers: Mapped[Optional['Polymer']] = relationship(back_populates='Films')
+
+class NNCoefficientType(Base):
+    __tablename__ = 'NNCoefficientTypes'
+
+    IdType: Mapped[int] = mapped_column(primary_key=True)
+    Name: Mapped[Optional[str]]
+
+class NNCoefficient(Base):
+    __tablename__ = 'NNCoefficients'
+
+    IdCoefficient: Mapped[int] = mapped_column(primary_key=True)
+    Value: Mapped[Optional[str]]
+    IdCoefficientType: Mapped[Optional[int]] = mapped_column(ForeignKey('NNCoefficientTypes.IdType'))

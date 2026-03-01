@@ -22,9 +22,9 @@ class MainWindow(QMainWindow):
 
         self.register_view.register_success.connect(self.show_login)
 
+        self.stack.addWidget(self.math_spec_view)
         self.stack.addWidget(self.login_view)
         self.stack.addWidget(self.register_view)
-        self.stack.addWidget(self.math_spec_view)
 
     def show_login(self):
         self.stack.setCurrentWidget(self.login_view)
