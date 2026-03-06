@@ -1,18 +1,26 @@
 import torch
+from torch.nn import Linear
 import torch.nn.functional as F
-from torch_geometric.nn import GATv2Conv
+from torch_geometric.nn import GCNConv, global_mean_pool
 
-class GAT(torch.nn.Module):
-    def __init__(self, dim_in, dim_h, dim_out, heads=8):
-        super(GAT, self).__init__()
-        self.gat1 = GATv2Conv(dim_in, dim_h, heads=heads)
-        self.gat2 = GATv2Conv(dim_h*heads, dim_out, heads=1)
+class GCN(torch.nn.Module):
+    def __init__(self, dim_in, dim_h):
+        super(GCN, self).__init__()
 
-    def forward(self, x, edge_index):
-        h = F.dropout(x, p=0.6, training=self.training)
-        h = self.gat1(h, edge_index)
-        h = F.elu(h)
-        h = F.dropout(h, p=0.6, training=self.training)
-        h = self.gat2(h, edge_index)
-        
-        return F.log_softmax(h, dim=1)
+        self.conv1 = GCNConv(dim_in, dim_h)
+        self.conv2 = GCNConv(dim_h, dim_h)
+
+        self.linear = Linear(dim_h, 1)
+
+    def forward(self, x, edge_index, batch):
+        x = self.conv1(x, edge_index)
+        x = torch.relu(x)
+
+        x = self.conv2(x, edge_index)
+        x = torch.relu(x)
+
+        x = global_mean_pool(x, batch)
+
+        x = self.linear(x)
+
+        return x
