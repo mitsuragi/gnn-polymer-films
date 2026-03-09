@@ -1,11 +1,10 @@
+from numpy import astype
 import sqlalchemy as sa
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, selectinload
+from torch import nn
 from .models import *
 import pandas as pd
-
-def create_engine(url: str) -> sa.Engine:
-    return sa.create_engine(url, echo=True)
 
 def get_parameters(session: Session):
     stmt = select(Parameter.IdParameter, Parameter.ParameterNameRu).where(Parameter.IdParameterType == 3)
@@ -35,6 +34,13 @@ def get_nn_coeffs(session: Session):
 
     return res.all()
 
+def get_defect_limit(session: Session, id_defect: int):
+    stmt = select(Limit.HighLimitValue).where(Limit.IdParameter == id_defect)
+
+    res = session.execute(stmt).one_or_none()
+
+    return res
+
 def get_training_data(
     session: Session,
     defect_id: int,
@@ -57,8 +63,6 @@ def get_training_data(
     )
 
     stage_rows = session.execute(stmt_stage).all()
-
-    print('stage_rows: ', stage_rows)
 
     stage_dict = {}
 
@@ -109,7 +113,6 @@ def get_training_data(
 
     df_pivot.rename(columns=new_columns, inplace=True)
 
-    print(df_pivot.head())
     df_pivot = df_pivot.dropna(how='any')
 
     df_pivot = df_pivot.iloc[::step]
@@ -117,3 +120,191 @@ def get_training_data(
     df_pivot.reset_index(inplace=True)
 
     return df_pivot, stage_dict
+
+def get_models(session: Session):
+    stmt = select(NNModel.IdModel, NNModel.Name)
+
+    models = session.execute(stmt).all()
+
+    return models
+
+def get_model_data(
+    session: Session,
+    model_id: int
+):
+    stmt = (
+        select(NNModel)
+        .where(NNModel.IdModel == model_id)
+        .options(
+            selectinload(NNModel.RelevantParameters),
+            selectinload(NNModel.Coefficients)
+            .selectinload(NNModelCoefficient.Coefficient)
+            .selectinload(NNCoefficient.Type)
+        )
+    )
+
+    model = session.scalar(stmt)
+
+    if model is None:
+        return None
+
+    parameters = []
+    defect = None
+
+    for rel in model.RelevantParameters:
+        if rel.IdParameterType == 1:
+            parameters.append(rel.IdParameter)
+        elif rel.IdParameterType == 2:
+            defect = rel.IdParameter
+
+    coefficients = {}
+    
+    for coef_rel in model.Coefficients:
+        coef = coef_rel.Coefficient
+        coef_type_name = coef_rel.Coefficient.Type.Name
+
+        coefficients[coef_type_name] = coef.Value
+
+    return {
+        'model': model.Model,
+        'parameters': parameters,
+        'defect': defect,
+        'coefficients': coefficients
+    }
+
+def get_forecasting_data(
+    session: Session,
+    parameters,
+    window_length,
+    step,
+    from_datetime,
+    to_datetime
+):
+    print(window_length)
+    print(step)
+    stmt_params = (
+        select(Parameter.IdParameter, Parameter.ParameterCode)
+        .where(Parameter.IdParameter.in_(parameters))
+    )
+
+    param_info = dict(session.execute(stmt_params).all())
+
+    rows = []
+
+    for param_id in parameters:
+        limit = window_length * step
+
+        stmt = (
+            select(
+                ParameterValue.IdParameter,
+                ParameterValue.DateTime,
+                ParameterValue.Value
+            )
+            .where(ParameterValue.IdParameter == param_id)
+            .where(ParameterValue.DateTime >= from_datetime)
+            .where(ParameterValue.DateTime <= to_datetime)
+            .order_by(ParameterValue.DateTime.desc())
+            .limit(limit)
+        )
+
+        values = session.execute(stmt).all()
+
+        values = list(reversed(values))
+
+        values = values[::step]
+
+        rows.extend(values)
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows, columns=['IdParameter', 'timestamp', 'value'])
+
+    df['value'] = pd.to_numeric(df['value'], errors='coerce')
+
+    df_pivot = df.pivot(
+        index='timestamp',
+        columns='IdParameter',
+        values='value'
+    )
+
+    new_columns = {
+        param_id: param_info.get(param_id, f'param_{param_id}')
+        for param_id in df_pivot.columns
+    }
+
+    df_pivot.rename(columns=new_columns, inplace=True)
+
+    df_pivot.reset_index(inplace=True)
+
+    return df_pivot
+
+def save_model(
+    session: Session,
+    model_name,
+    from_datetime,
+    to_datetime,
+    model,
+    parameters,
+    defect,
+    coefficients
+):
+    nn_model = NNModel(
+        Name=model_name,
+        FromDateTime=from_datetime,
+        ToDateTime=to_datetime,
+        Model=model
+    )
+
+    session.add(nn_model)
+    session.flush()
+
+    relevant_params = []
+
+    for param_id in parameters:
+        relevant_params.append(
+            NNModelRelevantParameter(
+                IdModel=nn_model.IdModel,
+                IdParameter=param_id,
+                IdParameterType=1
+            )
+        )
+
+    relevant_params.append(
+        NNModelRelevantParameter(
+            IdModel=nn_model.IdModel,
+            IdParameter=defect,
+            IdParameterType=2
+        )
+    )
+
+    model_coeffs = []
+
+    for coef_id in coefficients:
+        model_coeffs.append(
+            NNModelCoefficient(
+                IdModel=nn_model.IdModel,
+                IdCoefficient=coef_id
+            )
+        )
+
+    session.add_all(relevant_params)
+    session.add_all(model_coeffs)
+
+    session.commit()
+
+def delete_model(session: Session, model_id):
+    model = session.get(NNModel, model_id)
+
+    if model is None:
+        return False
+
+    # for rel in model.RelevantParameters:
+    #     session.delete(rel)
+    #
+    # for coef in model.Coefficients:
+    #     session.delete(coef)
+
+    session.delete(model)
+
+    session.commit()

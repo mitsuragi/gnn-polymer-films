@@ -1,8 +1,9 @@
+from pandas._libs.algos import backfill
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, LargeBinary
 
 import datetime
 from typing import Optional, List
@@ -115,12 +116,16 @@ class NNCoefficientType(Base):
     IdType: Mapped[int] = mapped_column(primary_key=True)
     Name: Mapped[Optional[str]]
 
+    Coefficients: Mapped[List['NNCoefficient']] = relationship(back_populates='Type')
+
 class NNCoefficient(Base):
     __tablename__ = 'NNCoefficients'
 
     IdCoefficient: Mapped[int] = mapped_column(primary_key=True)
     Value: Mapped[Optional[str]]
     IdCoefficientType: Mapped[Optional[int]] = mapped_column(ForeignKey('NNCoefficientTypes.IdType'))
+
+    Type: Mapped[Optional['NNCoefficientType']] = relationship(back_populates='Coefficients')
 
 class Stage(Base):
     __tablename__ = 'Stages'
@@ -129,3 +134,43 @@ class Stage(Base):
     Name: Mapped[Optional[str]]
 
     Parameters: Mapped[Optional[List['Parameter']]] = relationship(back_populates='Stage')
+
+class NNRelevantParameterType(Base):
+    __tablename__ = 'NNRelevantParameterTypes'
+
+    IdType: Mapped[int] = mapped_column(primary_key=True)
+    Name: Mapped[Optional[str]]
+
+    Parameters: Mapped[List['NNModelRelevantParameter']] = relationship(back_populates='ParameterType')
+
+class NNModel(Base):
+    __tablename__ = 'NNModels'
+
+    IdModel: Mapped[int] = mapped_column(primary_key=True)
+    Name: Mapped[Optional[str]]
+    FromDateTime: Mapped[Optional[datetime.datetime]]
+    ToDateTime: Mapped[Optional[datetime.datetime]]
+    Model: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+
+    RelevantParameters: Mapped[List['NNModelRelevantParameter']] = relationship(back_populates='Model', cascade='all, delete-orphan')
+    Coefficients: Mapped[List['NNModelCoefficient']] = relationship(back_populates='Model', cascade='all, delete-orphan')
+
+class NNModelRelevantParameter(Base):
+    __tablename__ = 'NNModelRelevantParameters'
+
+    IdModel: Mapped[int] = mapped_column(ForeignKey('NNModels.IdModel'), primary_key=True)
+    IdParameter: Mapped[int] = mapped_column(ForeignKey('Parameters.IdParameter'), primary_key=True)
+    IdParameterType: Mapped[Optional[int]] = mapped_column(ForeignKey('NNRelevantParameterTypes.IdType'))
+
+    Model: Mapped['NNModel'] = relationship(back_populates='RelevantParameters')
+    Parameter: Mapped['Parameter'] = relationship()
+    ParameterType: Mapped['NNRelevantParameterType'] = relationship(back_populates='Parameters')
+
+class NNModelCoefficient(Base):
+    __tablename__ = 'NNModelCoefficients'
+
+    IdModel: Mapped[int] = mapped_column(ForeignKey('NNModels.IdModel'), primary_key=True)
+    IdCoefficient: Mapped[int] = mapped_column(ForeignKey('NNCoefficients.IdCoefficient'), primary_key=True)
+
+    Model: Mapped['NNModel'] = relationship(back_populates='Coefficients')
+    Coefficient: Mapped['NNCoefficient'] = relationship()

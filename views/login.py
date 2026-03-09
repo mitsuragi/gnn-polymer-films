@@ -1,6 +1,6 @@
 from PySide6.QtGui import Qt
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QWidget, QPushButton, QTextEdit, QLabel, QVBoxLayout, QFrame
+from PySide6.QtWidgets import QWidget, QPushButton, QLineEdit, QLabel, QVBoxLayout, QFrame
 
 # from share.toast import ToastAlert
 
@@ -26,8 +26,8 @@ class LoginView(QWidget):
         self.label = QLabel('Вход')
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.login = QTextEdit(placeholderText='Введите логин...')
-        self.password = QTextEdit(placeholderText='Введите пароль...')
+        self.login = QLineEdit(placeholderText='Введите логин...')
+        self.password = QLineEdit(placeholderText='Введите пароль...')
 
         self.log_btn = QPushButton('Войти')
         self.reg_btn = QPushButton('Зарегистрироваться')
