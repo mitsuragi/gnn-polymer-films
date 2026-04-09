@@ -5,14 +5,13 @@ from PySide6.QtWidgets import QWidget, QPushButton, QLineEdit, QLabel, QVBoxLayo
 # from share.toast import ToastAlert
 
 class LoginView(QWidget):
-    login_success = Signal()
+    login_success = Signal(str)
     show_register = Signal()
 
     def __init__(self):
         super().__init__()
         
         self.setWindowTitle('Вход')
-        # self.setFixedSize(512,512)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0,0,0,0)
@@ -46,5 +45,4 @@ class LoginView(QWidget):
         self.setLayout(layout)
 
     def on_login(self):
-        self.login_success.emit()
-        # ToastAlert(self.window(), 'error', 'error')
+        self.login_success.emit('qwe')

@@ -1,5 +1,5 @@
 import torch
-from torch.nn import Linear
+from torch.nn import Dropout, Linear
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, global_mean_pool
 
@@ -9,6 +9,8 @@ class GCN(torch.nn.Module):
 
         self.conv1 = GCNConv(dim_in, dim_h)
         self.conv2 = GCNConv(dim_h, dim_h)
+
+        self.dropout = Dropout(0.3)
 
         self.linear = Linear(dim_h, 1)
 
@@ -20,6 +22,8 @@ class GCN(torch.nn.Module):
         x = torch.relu(x)
 
         x = global_mean_pool(x, batch)
+
+        x = self.dropout(x)
 
         x = self.linear(x)
 

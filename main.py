@@ -1,4 +1,5 @@
 from PySide6.QtWidgets import (QApplication, QMainWindow, QStackedWidget)
+from PySide6.QtCore import QFile, QTextStream
 
 import sys
 
@@ -10,6 +11,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle('GNN')
         self.setFixedSize(1600, 900)
+        self.load_styles()
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
 
@@ -42,6 +44,18 @@ class MainWindow(QMainWindow):
 
     def show_quality_eng_view(self):
         self.stack.setCurrentWidget(self.quality_eng_view)
+
+    def load_styles(self):
+        style_file = QFile("styles/styles.qss")
+    
+        if not style_file.exists():
+            print('file not found')
+            return
+    
+        if style_file.open(QFile.OpenModeFlag.ReadOnly | QFile.OpenModeFlag.Text):
+            stream = QTextStream(style_file)
+            self.setStyleSheet(stream.readAll())
+            style_file.close()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

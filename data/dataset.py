@@ -1,6 +1,7 @@
 from torch._prims_common import DeviceLikeType
 from torch_geometric.data import Dataset, Data
 from torch_geometric.loader import DataLoader
+from sklearn.preprocessing import MinMaxScaler
 import torch
 import numpy as np
 from pandas import DataFrame
@@ -101,19 +102,48 @@ def get_datasets(
     train_size = int(len(df) * 0.7)
     val_size = int((len(df) - train_size) / 2)
 
-    df['target'] = (df['target'] > 0).astype(int)
+    df['target'] = (df['target'] > limit).astype(int)
 
-    train_data = df.iloc[:train_size]
-    eval_data = df.iloc[train_size:train_size + val_size]
-    test_data = df.iloc[train_size + val_size:]
+    cols = []
+
+    for stage_cols in stage_dict.values():
+        if stage_cols is not None:
+            cols.extend(stage_cols)
+
+    print(cols)
+    cols = list(set(cols))
+    print(cols)
+
+    # train_data = df.iloc[:train_size]
+    # eval_data = df.iloc[train_size:train_size + val_size]
+    # test_data = df.iloc[train_size + val_size:]
+
+    eval_data = df.iloc[:val_size]
+    test_data = df.iloc[val_size:val_size + val_size]
+    train_data = df.iloc[val_size + val_size:]
+
+    scaler = MinMaxScaler()
+    scaler.fit(df[cols])
+
+    pos = (eval_data['target'] == 0).sum()
+    neg = (eval_data['target'] == 1).sum()
+
+    print(pos / pos + neg) 
+    print(neg / pos + neg)
 
     pos = (train_data['target'] == 0).sum()
     neg = (train_data['target'] == 1).sum()
 
-    print(pos)
-    print(neg)
+    # print(pos)
+    # print(neg)
 
     pos_weight = neg / pos
+
+    train_data[cols] = scaler.transform(train_data[cols])
+    eval_data[cols] = scaler.transform(eval_data[cols])
+    test_data[cols] = scaler.transform(test_data[cols])
+
+    print(train_data)
 
     train_ds = PolyFilmDataset(
         train_data,
@@ -139,7 +169,7 @@ def get_datasets(
         limit
     )
 
-    return (train_ds, eval_ds, test_ds, pos_weight)
+    return (train_data, eval_ds, test_ds, pos_weight)
 
 def get_dataloaders(
     train_ds,

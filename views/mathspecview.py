@@ -6,10 +6,13 @@ import sqlalchemy as sa
 import torch
 from torch.nn import BCEWithLogitsLoss
 from torch.optim import Adam
+from torch_geometric.utils import to_networkx
+import networkx as nx
+import matplotlib.pyplot as plt
 import io
 
 from share import ParametersListModel, AdjustedComboBox
-from db.db_manager import get_parameters, get_defects, get_datetime_range, get_nn_coeffs, get_training_data, save_model, delete_model, get_models
+from db.db_manager import get_parameters, get_defects, get_datetime_range, get_nn_coeffs, get_training_data, save_model, delete_model, get_models, get_defect_limit
 from data.dataset import get_datasets, get_dataloaders
 from gnn.model import GCN
 import gnn.trainer as tr
@@ -32,7 +35,7 @@ class MathSpecialistView(QWidget):
         
         frame_layout = QVBoxLayout(frame)
         frame_layout.setContentsMargins(15, 10, 15, 10)
-        frame_layout.setSpacing(20)
+        frame_layout.setSpacing(5)
 
         self.quit_view_btn = QPushButton('Выйти')
         self.quit_view_btn.clicked.connect(self.quit_view)
@@ -63,8 +66,8 @@ class MathSpecialistView(QWidget):
         self.step_combobox = AdjustedComboBox()
         self.window_combobox = AdjustedComboBox()
 
-        settings_combobox_layout.addWidget(QLabel('Количество скрытых слоев'))
-        settings_combobox_layout.addWidget(self.layers_combobox)
+        # settings_combobox_layout.addWidget(QLabel('Количество скрытых слоев'))
+        # settings_combobox_layout.addWidget(self.layers_combobox)
         settings_combobox_layout.addWidget(QLabel('Размер батча'))
         settings_combobox_layout.addWidget(self.batch_combobox)
         settings_combobox_layout.addWidget(QLabel('Максимальное количество эпох'))
@@ -151,6 +154,7 @@ class MathSpecialistView(QWidget):
         self.train_btn.clicked.connect(self.training)
 
         verification_layout = QGridLayout()
+        verification_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.mae_label = QLabel()
         self.rmse_label = QLabel()
@@ -158,16 +162,21 @@ class MathSpecialistView(QWidget):
         self.precision_label = QLabel()
         self.recall_label = QLabel()
 
-        verification_layout.addWidget(QLabel('MAE = '), 0, 0)
+        verification_layout.addWidget(QLabel('MAE = '), 0, 0, alignment=Qt.AlignmentFlag.AlignRight)
         verification_layout.addWidget(self.mae_label, 0, 1)
-        verification_layout.addWidget(QLabel('RMSE = '), 1, 0)
+        verification_layout.addWidget(QLabel('RMSE = '), 1, 0, alignment=Qt.AlignmentFlag.AlignRight)
         verification_layout.addWidget(self.rmse_label, 1, 1)
-        verification_layout.addWidget(QLabel('WAPE = '), 2, 0)
+        verification_layout.addWidget(QLabel('WAPE = '), 2, 0, alignment=Qt.AlignmentFlag.AlignRight)
         verification_layout.addWidget(self.wape_label, 2, 1)
-        verification_layout.addWidget(QLabel('Precision = '), 0, 2)
+        verification_layout.addWidget(QLabel('Precision = '), 0, 2, alignment=Qt.AlignmentFlag.AlignRight)
         verification_layout.addWidget(self.precision_label, 0, 3)
-        verification_layout.addWidget(QLabel('Recall = '), 1, 2)
+        verification_layout.addWidget(QLabel('Recall = '), 1, 2, alignment=Qt.AlignmentFlag.AlignRight)
         verification_layout.addWidget(self.recall_label, 1, 3)
+
+        verification_layout.setColumnStretch(0, 0)
+        verification_layout.setColumnStretch(1, 1)
+        verification_layout.setColumnStretch(2, 0)
+        verification_layout.setColumnStretch(3, 1)
 
         plot_layout = QHBoxLayout()
         self.compare_plot_btn = QPushButton('График реальных и спрогнозированных величин')
@@ -207,7 +216,6 @@ class MathSpecialistView(QWidget):
         frame_layout.addLayout(plot_layout)
         frame_layout.addWidget(self.save_model_btn)
         frame_layout.addLayout(models_layout)
-        # frame_layout.addSpacerItem(QSpacerItem(1, 1000))
 
         layout.addWidget(frame)
         self.setLayout(layout)
@@ -229,6 +237,7 @@ class MathSpecialistView(QWidget):
                     self.window_combobox.addItem(coef.Value, coef.IdCoefficient)
                 elif coef.IdCoefficientType == 5:
                     self.step_combobox.addItem(coef.Value, coef.IdCoefficient)
+
     def training(self):
         if self.df is None:
             return
@@ -238,7 +247,7 @@ class MathSpecialistView(QWidget):
             int(self.window_combobox.currentText()),
             self.stage_dict,
             int(self.step_combobox.currentText()),
-            0
+            self.limit
         )
 
         print(pos_weight)
@@ -246,7 +255,6 @@ class MathSpecialistView(QWidget):
         train_dl, eval_dl, test_dl = get_dataloaders(train_ds, eval_ds, test_ds, batch_size=int(self.batch_combobox.currentText()))
 
         epochs = int(self.epoch_combobox.currentText())
-        epochs = 5
 
         input_dim = train_ds[0].x.shape[1] 
         print(input_dim)
@@ -312,11 +320,11 @@ class MathSpecialistView(QWidget):
         self.update_table()
 
     def set_metrics(self, metrics_dict):
-        self.mae_label.setText(str(metrics_dict['MAE']))
-        self.rmse_label.setText(str(metrics_dict['RMSE']))
-        self.wape_label.setText(str(metrics_dict['WAPE']))
-        self.precision_label.setText(str(metrics_dict['Precision']))
-        self.recall_label.setText(str(metrics_dict['Recall']))
+        self.mae_label.setText(f"{metrics_dict['MAE']:.3f}")
+        self.rmse_label.setText(f"{metrics_dict['RMSE']:.3f}")
+        self.wape_label.setText(f"{metrics_dict['WAPE']:.3f}")
+        self.precision_label.setText(f"{metrics_dict['Precision']:.3f}")
+        self.recall_label.setText(f"{metrics_dict['Recall']:.3f}")
 
     def update_table(self):
         with self.sessionmaker() as session:
@@ -342,6 +350,7 @@ class MathSpecialistView(QWidget):
         self.graph_window.show()
 
     def load_data(self):
+        defect_id = self.defects_combobox.currentData(),
         with self.sessionmaker() as session:
             self.df, self.stage_dict = get_training_data(
                 session,
@@ -351,6 +360,8 @@ class MathSpecialistView(QWidget):
                 self.date_from.dateTime().toPython(),
                 self.date_to.dateTime().toPython()
             )
+
+            self.limit = get_defect_limit(session, self.defects_combobox.currentData())
 
     def quit_view(self):
         self.quit_view_signal.emit()

@@ -32,7 +32,7 @@ def train(
         total_loss += loss.item() * data.num_graphs
 
         probs = torch.sigmoid(out)
-        preds = (probs>0.1).int()
+        preds = (probs>0.5).int()
 
         all_probs.append(probs.detach().cpu())
         all_preds.append(preds.detach().cpu())

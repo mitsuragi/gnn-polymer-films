@@ -192,8 +192,6 @@ def get_forecasting_data(
     rows = []
 
     for param_id in parameters:
-        limit = window_length * step
-
         stmt = (
             select(
                 ParameterValue.IdParameter,
@@ -204,7 +202,6 @@ def get_forecasting_data(
             .where(ParameterValue.DateTime >= from_datetime)
             .where(ParameterValue.DateTime <= to_datetime)
             .order_by(ParameterValue.DateTime.desc())
-            .limit(limit)
         )
 
         values = session.execute(stmt).all()

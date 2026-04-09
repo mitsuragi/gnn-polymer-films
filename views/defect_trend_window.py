@@ -11,6 +11,9 @@ class DefectTrendWindow(QWidget):
 
         axis = pg.DateAxisItem(orientation='bottom')
 
+        pg.setConfigOption('background', 'w')
+        pg.setConfigOption('foreground', 'k')
+
         self.plot_widget = pg.PlotWidget(axisItems={'bottom': axis})
 
         layout.addWidget(self.plot_widget)
