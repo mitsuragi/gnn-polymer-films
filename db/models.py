@@ -1,4 +1,3 @@
-from pandas._libs.algos import backfill
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
@@ -174,3 +173,11 @@ class NNModelCoefficient(Base):
 
     Model: Mapped['NNModel'] = relationship(back_populates='Coefficients')
     Coefficient: Mapped['NNCoefficient'] = relationship()
+
+class User(Base):
+    __tablename__ = 'Users'
+
+    IdUser: Mapped[int] = mapped_column(primary_key=True)
+    Username: Mapped[str] = mapped_column(unique=True, nullable=False)
+    Password: Mapped[str] = mapped_column(nullable=False)
+    Role: Mapped[str] = mapped_column(nullable=False)

@@ -4,14 +4,14 @@ from PySide6.QtCore import Signal
 from sqlalchemy.orm import sessionmaker
 import sqlalchemy as sa
 import torch
-from torch.nn import BCEWithLogitsLoss
+from torch_focalloss import BinaryFocalLoss
 from torch.optim import Adam
 from torch_geometric.utils import to_networkx
 import networkx as nx
 import matplotlib.pyplot as plt
 import io
 
-from share import ParametersListModel, AdjustedComboBox
+from share import ParametersListModel, AdjustedComboBox, Page
 from db.db_manager import get_parameters, get_defects, get_datetime_range, get_nn_coeffs, get_training_data, save_model, delete_model, get_models, get_defect_limit
 from data.dataset import get_datasets, get_dataloaders
 from gnn.model import GCN
@@ -19,12 +19,13 @@ import gnn.trainer as tr
 from .defect_trend_window import DefectTrendWindow
 
 class MathSpecialistView(QWidget):
-    quit_view_signal = Signal()
     model = None
     df = None
 
-    def __init__(self):
+    def __init__(self, nav):
         super().__init__()
+
+        self.nav = nav
 
         self.setWindowTitle('Интерфейс специалиста по математическому обеспечению')
 
@@ -261,7 +262,7 @@ class MathSpecialistView(QWidget):
         self.model = GCN(input_dim, 64)
         print(sum(p.numel() for p in self.model.parameters()))
 
-        criterion = BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight]))
+        criterion = BinaryFocalLoss()
         optimizer = Adam(self.model.parameters())
 
         for epoch in range(1, epochs+1):
@@ -364,4 +365,4 @@ class MathSpecialistView(QWidget):
             self.limit = get_defect_limit(session, self.defects_combobox.currentData())
 
     def quit_view(self):
-        self.quit_view_signal.emit()
+        self.nav.navigate(Page.LOGIN)

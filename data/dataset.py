@@ -180,7 +180,7 @@ def get_dataloaders(
     train_dl = DataLoader(
         train_ds,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=True,
     )
 
     eval_dl = DataLoader(

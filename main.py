@@ -1,9 +1,14 @@
 from PySide6.QtWidgets import (QApplication, QMainWindow, QStackedWidget)
 from PySide6.QtCore import QFile, QTextStream
+import sqlalchemy as sa
+from sqlalchemy.orm import sessionmaker
 
 import sys
 
 from views import LoginView, RegisterView, MathSpecialistView, QualityEngineerView
+from core.auth_service import AuthService
+from core.navigation import NavigationManager
+from share import Page
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -15,35 +20,32 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
 
-        self.login_view = LoginView()
-        self.register_view = RegisterView()
-        self.math_spec_view = MathSpecialistView()
-        self.quality_eng_view = QualityEngineerView()
+        self.nav = NavigationManager(self.stack)
 
-        self.login_view.show_register.connect(self.show_quality_eng_view)
-        self.login_view.login_success.connect(self.show_math_spec_view)
+        self.nav.register(Page.LOGIN, lambda nav: LoginView(nav))
+        self.nav.register(Page.REGISTER, lambda nav: RegisterView(nav))
+        self.nav.register(Page.MATH, lambda nav: MathSpecialistView(nav))
+        self.nav.register(Page.QUALITY, lambda nav: QualityEngineerView(nav))
 
-        self.register_view.register_success.connect(self.show_login)
-
-        self.math_spec_view.quit_view_signal.connect(self.show_login)
-        self.quality_eng_view.quit_view_signal.connect(self.show_login)
-
-        self.stack.addWidget(self.login_view)
-        self.stack.addWidget(self.register_view)
-        self.stack.addWidget(self.quality_eng_view)
-        self.stack.addWidget(self.math_spec_view)
+        self.nav.navigate(Page.LOGIN)
 
     def show_login(self):
-        self.stack.setCurrentWidget(self.login_view)
+        self.nav.navigate(Page.LOGIN)
 
     def show_register(self):
-        self.stack.setCurrentWidget(self.register_view)
+        self.nav.navigate(Page.REGISTER)
 
     def show_math_spec_view(self):
-        self.stack.setCurrentWidget(self.math_spec_view)
+        self.nav.navigate(Page.MATH)
 
     def show_quality_eng_view(self):
-        self.stack.setCurrentWidget(self.quality_eng_view)
+        self.nav.navigate(Page.QUALITY)
+
+    def on_login_success(self, user):
+        if user.Role == 'math':
+            self.show_math_spec_view()
+        elif user.Role == 'quality':
+            self.show_quality_eng_view()
 
     def load_styles(self):
         style_file = QFile("styles/styles.qss")

@@ -4,8 +4,8 @@ class ParametersListModel(QAbstractListModel):
     def __init__(self, items):
         super().__init__()
         self.items = items
-        self.checked = set()
-        # self.items = []
+        # self.checked = set()
+        self.checked = {item[0] for item in self.items}
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
@@ -57,7 +57,7 @@ class ParametersListModel(QAbstractListModel):
     def setItemsList(self, new_items):
         self.beginResetModel()
         self.items = new_items
-        self.checked.clear()
+        self.checked = {item[0] for item in self.items}
         self.endResetModel()
 
     def getCheckedIds(self):

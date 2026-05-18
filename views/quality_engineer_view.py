@@ -4,17 +4,18 @@ from PySide6.QtCore import Signal
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
 
-from share import AdjustedComboBox
+from share import AdjustedComboBox, Page
 from db.db_manager import get_datetime_range, get_models, get_model_data, get_forecasting_data
 from .defect_trend_window import DefectTrendWindow
 
 class QualityEngineerView(QWidget):
-    quit_view_signal = Signal()
     model = None
     df = None
 
-    def __init__(self):
+    def __init__(self, nav):
         super().__init__()
+
+        self.nav = nav
 
         self.setWindowTitle('Интерфейс инженера по качеству')
 
@@ -142,4 +143,4 @@ class QualityEngineerView(QWidget):
         self.graph_window.show()
 
     def quit_view(self):
-        self.quit_view_signal.emit()
+        self.nav.navigate(Page.LOGIN)

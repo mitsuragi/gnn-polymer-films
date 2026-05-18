@@ -1,13 +1,13 @@
 from numpy import astype
 import sqlalchemy as sa
-from sqlalchemy import func, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session, selectinload
 from torch import nn
 from .models import *
 import pandas as pd
 
 def get_parameters(session: Session):
-    stmt = select(Parameter.IdParameter, Parameter.ParameterNameRu).where(Parameter.IdParameterType == 3)
+    stmt = select(Parameter.IdParameter, Parameter.ParameterNameRu).where(Parameter.IdParameterType == 3).where(Parameter.IdStage.is_not(None))
 
     res = session.execute(stmt)
 
@@ -305,3 +305,33 @@ def delete_model(session: Session, model_id):
     session.delete(model)
 
     session.commit()
+
+def get_user(session: Session, username: str):
+    stmt = select(User.Username, User.Password, User.Role).where(User.Username == username)
+
+    user = session.execute(stmt).one_or_none()
+
+    return user
+
+def user_exists(session: Session, username: str):
+    user_exists = session.scalar(
+        select(User.IdUser).where(User.Username == username)
+    ) 
+
+    if user_exists:
+        return True
+    else:
+        return False
+
+def add_user(session: Session, username: str, password_hash: str, role: str):
+    new_user = User(
+        Username=username,
+        Password=password_hash,
+        Role=role
+    )
+
+    session.add(new_user)
+
+    session.commit()
+
+    return True
