@@ -1,6 +1,5 @@
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 import pyqtgraph as pg
-import datetime
 
 class DefectTrendWindow(QWidget):
     def __init__(self, times, values):

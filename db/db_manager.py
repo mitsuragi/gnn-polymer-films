@@ -45,32 +45,12 @@ def get_training_data(
     session: Session,
     defect_id: int,
     parameter_ids: list[int],
-    step: int,
     time_from: datetime.datetime,
     time_to: datetime.datetime
 ):
     all_ids = parameter_ids + [defect_id]
 
     stmt_params = select(Parameter.IdParameter, Parameter.ParameterCode).where(Parameter.IdParameter.in_(all_ids))
-
-    stmt_stage = (
-        select(
-            Stage.Name,
-            Parameter.ParameterCode
-        )
-        .join(Parameter, Parameter.IdStage == Stage.IdStage)
-        .where(Parameter.IdParameter.in_(parameter_ids))
-    )
-
-    stage_rows = session.execute(stmt_stage).all()
-
-    stage_dict = {}
-
-    for stage_name, param_code in stage_rows:
-        if stage_name not in stage_dict:
-            stage_dict[stage_name] = []
-
-        stage_dict[stage_name].append(param_code)
 
     param_info = dict(session.execute(stmt_params).all())
 
@@ -115,11 +95,9 @@ def get_training_data(
 
     df_pivot = df_pivot.dropna(how='any')
 
-    df_pivot = df_pivot.iloc[::step]
-
     df_pivot.reset_index(inplace=True)
 
-    return df_pivot, stage_dict
+    return df_pivot
 
 def get_models(session: Session):
     stmt = select(NNModel.IdModel, NNModel.Name)
@@ -157,84 +135,11 @@ def get_model_data(
         elif rel.IdParameterType == 2:
             defect = rel.IdParameter
 
-    coefficients = {}
-    
-    for coef_rel in model.Coefficients:
-        coef = coef_rel.Coefficient
-        coef_type_name = coef_rel.Coefficient.Type.Name
-
-        coefficients[coef_type_name] = coef.Value
-
     return {
         'model': model.Model,
         'parameters': parameters,
         'defect': defect,
-        'coefficients': coefficients
     }
-
-def get_forecasting_data(
-    session: Session,
-    parameters,
-    window_length,
-    step,
-    from_datetime,
-    to_datetime
-):
-    print(window_length)
-    print(step)
-    stmt_params = (
-        select(Parameter.IdParameter, Parameter.ParameterCode)
-        .where(Parameter.IdParameter.in_(parameters))
-    )
-
-    param_info = dict(session.execute(stmt_params).all())
-
-    rows = []
-
-    for param_id in parameters:
-        stmt = (
-            select(
-                ParameterValue.IdParameter,
-                ParameterValue.DateTime,
-                ParameterValue.Value
-            )
-            .where(ParameterValue.IdParameter == param_id)
-            .where(ParameterValue.DateTime >= from_datetime)
-            .where(ParameterValue.DateTime <= to_datetime)
-            .order_by(ParameterValue.DateTime.desc())
-        )
-
-        values = session.execute(stmt).all()
-
-        values = list(reversed(values))
-
-        values = values[::step]
-
-        rows.extend(values)
-
-    if not rows:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(rows, columns=['IdParameter', 'timestamp', 'value'])
-
-    df['value'] = pd.to_numeric(df['value'], errors='coerce')
-
-    df_pivot = df.pivot(
-        index='timestamp',
-        columns='IdParameter',
-        values='value'
-    )
-
-    new_columns = {
-        param_id: param_info.get(param_id, f'param_{param_id}')
-        for param_id in df_pivot.columns
-    }
-
-    df_pivot.rename(columns=new_columns, inplace=True)
-
-    df_pivot.reset_index(inplace=True)
-
-    return df_pivot
 
 def save_model(
     session: Session,

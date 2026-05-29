@@ -1,198 +1,170 @@
-from torch._prims_common import DeviceLikeType
 from torch_geometric.data import Dataset, Data
-from torch_geometric.loader import DataLoader
-from sklearn.preprocessing import MinMaxScaler
 import torch
 import numpy as np
-from pandas import DataFrame
+import pandas as pd
+from scipy import stats
 
-StagesDict = dict[str, list[str] | None]
+def pearson_matrix(df: pd.DataFrame) -> np.ndarray:
+  """Корреляция Пирсона между всеми парами признаков."""
+  return df.corr(method='pearson').values
+
+def spearman_matrix(df: pd.DataFrame) -> np.ndarray:
+  """Ранговая корреляция Спирмена (устойчива к выбросам)."""
+  return df.corr(method='spearman').values
+
+def mutual_info_matrix(df: pd.DataFrame) -> np.ndarray:
+  """
+  Нормированная взаимная информация (NMI) через оценку плотности.
+  Симметрична, лежит в [0, 1].
+  """
+  n_features = df.shape[1]
+  mi = np.zeros((n_features, n_features))
+  arr = df.values.astype(np.float32)
+  for i in range(n_features):
+    for j in range(i + 1, n_features):
+      # kernel-density оценка двумерной MI через корреляцию Спирмена
+      # (быстрое приближение без sklearn)
+      r, _ = stats.spearmanr(arr[:, i], arr[:, j])
+      r = np.clip(r, -1 + 1e-9, 1 - 1e-9)
+      nmi = abs(r) # приближение: |r| ≈ NMI для монотонных связей
+      mi[i, j] = nmi
+      mi[j, i] = nmi
+
+  np.fill_diagonal(mi, 1.0)
+  return mi
+
+def partial_corr_matrix(df: pd.DataFrame) -> np.ndarray:
+  """
+  Частичная корреляция через обращение корреляционной матрицы.
+  Показывает прямую связь между парой переменных при фиксации остальных.
+  """
+  corr = df.corr(method='pearson').values
+  try:
+    inv = np.linalg.pinv(corr)
+    d = np.sqrt(np.diag(inv))
+    partial = -inv / np.outer(d, d)
+    np.fill_diagonal(partial, 1.0)
+    return np.abs(partial)
+  except np.linalg.LinAlgError:
+    return np.abs(corr)
+
+EDGE_STRATEGIES = {
+  'pearson':      pearson_matrix,
+  'spearman':     spearman_matrix,
+  'mutual_info':  mutual_info_matrix,
+  'partial_corr': partial_corr_matrix,
+}
 
 class PolyFilmDataset(Dataset):
-    def __init__(
-        self,
-        df: DataFrame,
-        window_size,
-        stage_dict: StagesDict,
-        step: int = 1,
-        limit: int = 0,
-        device: DeviceLikeType | None = None
-    ):
-        super().__init__()
-        
-        self.df = df.reset_index(drop=True)
+  def __init__(
+    self,
+    df: pd.DataFrame,
+    target_col: str = 'target',
+    edge_strategy: str | list[str] = 'pearson',
+    threshold: float = 0.3,
+    self_loops: bool = True,
+    normalize_features: bool = True,
+  ):
+    super().__init__()
 
-        self.stages = stage_dict
-        
-        self.active_stages = []
-        for name, cols in stage_dict.items():
-            if cols is not None:
-                self.active_stages.append(name)
+    self._feature_cols: list[str] = [c for c in df.columns if c != target_col]
+    self._n_nodes: int = len(self._feature_cols)
 
-        self.window_size = window_size
+    feature_df = df[self._feature_cols].copy().astype(np.float32)
+    labels = df[target_col].values.astype(np.int64)
 
-        self.max_features = max(
-            len(cols) for cols in stage_dict.values() if cols is not None
-        ) * self.window_size
+    if normalize_features:
+      self._mean = feature_df.mean()
+      self._std = feature_df.std().replace(0, 1)
+      feature_df = (feature_df - self._mean) / self._std
+    else:
+      self._mean = None
+      self._std = None
 
-        self.step = step
+    self._features: np.ndarray = feature_df.values
+    self._labels: np.ndarray = labels
 
-        # self.df['target'] = (self.df['target'] > limit).astype(int)
+    strategies = [edge_strategy] if isinstance(edge_strategy, str) else edge_strategy
+    for s in strategies:
+      if s not in EDGE_STRATEGIES:
+        raise ValueError(
+          f"Неизвестная стратегия '{s}'. "
+          f"Доступные: {list(EGDE_STRATEGIES)}"
+        )
 
-        self.window_indices = [
-            i for i in range(0, len(self.df) - self.window_size, step)
-        ]
+    weight_matrices = [
+      np.abs(EDGE_STRATEGIES[s](feature_df))
+      for s in strategies
+    ]
 
-        self.device = device
+    combined: np.ndarray = np.mean(weight_matrices, axis=0)
+    np.fill_diagonal(combined, 0.0)
 
-        self.edge_index = self.build_edge_index()
+    src, dst = np.where(combined >= threshold)
+    edge_weights = combined[src, dst].astype(np.float32)
 
-    def len(self) -> int:
-        return len(self.window_indices)
+    if self_loops:
+      loop_idx = np.arange(self._n_nodes)
+      src = np.concatenate([src, loop_idx])
+      dst = np.concatenate([dst, loop_idx])
+      edge_weights = np.concatenate([edge_weights, np.ones(self._n_nodes)])
 
-    def get(self, idx) -> Data:
-        start = self.window_indices[idx]
-        end = start + self.window_size
+    self._edge_index: torch.Tensor = torch.tensor(
+      np.stack([src, dst], axis=0), dtype=torch.long
+    )
+    self._edge_attr: torch.Tensor = torch.tensor(
+      edge_weights,  dtype=torch.float32
+    ).unsqueeze(1)
 
-        window = self.df.iloc[start:end]
-        target = self.df.iloc[end]['target']
+  def len(self) -> int:
+    return len(self._labels)
 
-        x = self.window_to_node(window)
+  def get(self, idx: int) -> Data:
+    """
+    Возвращает граф для одного наблюдения.
+ 
+    Граф:
+    x          — (N_nodes, 1)  значения признаков для данного наблюдения
+    edge_index — (2, E)        индексы рёбер (общие для всех графов)
+    edge_attr  — (E, 1)        веса рёбер (общие для всех графов)
+    y          — (1,)          бинарная метка
+    """
+    
+    # Значения признаков текущего наблюдения — каждый узел получает своё число
+    node_features = torch.tensor(
+      self._features[idx], dtype=torch.float32
+    ).unsqueeze(1)
 
-        y = torch.tensor([target], dtype=torch.long)
+    label = torch.tensor(self._labels[idx], dtype=torch.long)
 
-        return Data(x=x, edge_index=self.edge_index, y=y)
-
-    def build_edge_index(self):
-        edges = [] 
-
-        for i in range(len(self.active_stages) - 1):
-            edges.append([i, i+1])
-
-        if len(edges) == 0:
-            return torch.empty((2, 0), dtype=torch.long)
-
-        return torch.tensor(edges, dtype=torch.long).t().contiguous()
-
-    def window_to_node(self, window: DataFrame):
-        node_features = []
-
-        for name in self.active_stages:
-            cols = self.stages[name]
-            
-            features = window[cols].values.flatten()
-
-            if len(features) < self.max_features:
-                pad = self.max_features - len(features)
-                features = np.pad(features, (0, pad))
-
-            node_features.append(features)
-
-        x = torch.tensor(np.vstack(node_features), dtype=torch.float)
-
-        return x
-
-def get_datasets(
-    df,
-    window_size,
-    stage_dict,
-    step,
-    limit
-):
-    train_size = int(len(df) * 0.7)
-    val_size = int((len(df) - train_size) / 2)
-
-    df['target'] = (df['target'] > limit).astype(int)
-
-    cols = []
-
-    for stage_cols in stage_dict.values():
-        if stage_cols is not None:
-            cols.extend(stage_cols)
-
-    print(cols)
-    cols = list(set(cols))
-    print(cols)
-
-    # train_data = df.iloc[:train_size]
-    # eval_data = df.iloc[train_size:train_size + val_size]
-    # test_data = df.iloc[train_size + val_size:]
-
-    eval_data = df.iloc[:val_size]
-    test_data = df.iloc[val_size:val_size + val_size]
-    train_data = df.iloc[val_size + val_size:]
-
-    scaler = MinMaxScaler()
-    scaler.fit(df[cols])
-
-    pos = (eval_data['target'] == 0).sum()
-    neg = (eval_data['target'] == 1).sum()
-
-    print(pos / pos + neg) 
-    print(neg / pos + neg)
-
-    pos = (train_data['target'] == 0).sum()
-    neg = (train_data['target'] == 1).sum()
-
-    # print(pos)
-    # print(neg)
-
-    pos_weight = neg / pos
-
-    train_data[cols] = scaler.transform(train_data[cols])
-    eval_data[cols] = scaler.transform(eval_data[cols])
-    test_data[cols] = scaler.transform(test_data[cols])
-
-    print(train_data)
-
-    train_ds = PolyFilmDataset(
-        train_data,
-        window_size,
-        stage_dict,
-        step,
-        limit
+    return Data(
+      x             = node_features,
+      edge_index    = self._edge_index,
+      edge_attr     = self._edge_attr,
+      y             = label,
+      num_nodes     = self._n_nodes,
     )
 
-    eval_ds = PolyFilmDataset(
-        eval_data,
-        window_size,
-        stage_dict,
-        step,
-        limit
+  @property
+  def num_node_features(self) -> int:
+    return 1
+
+  @property
+  def num_classes(self) -> int:
+    return 2
+
+  @property
+  def feature_names(self) -> list[str]:
+    return self._feature_cols
+
+  @property
+  def num_edges(self) -> int:
+    return self._edge_index.shape[1]
+
+  def __repr__(self) -> str:
+    return (
+      f"{self.__class__.__name__}("
+      f"samples={self.len()}, "
+      f"nodes={self._n_nodes}, "
+      f"edges={self.num_edges})"
     )
-
-    test_ds = PolyFilmDataset(
-        test_data,
-        window_size,
-        stage_dict,
-        step,
-        limit
-    )
-
-    return (train_data, eval_ds, test_ds, pos_weight)
-
-def get_dataloaders(
-    train_ds,
-    eval_ds,
-    test_ds,
-    batch_size
-):
-    train_dl = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True,
-    )
-
-    eval_dl = DataLoader(
-        eval_ds,
-        batch_size=batch_size,
-        shuffle=False,
-    )
-
-    test_dl = DataLoader(
-        test_ds,
-        batch_size=batch_size,
-        shuffle=False,
-    )
-
-    return (train_dl, eval_dl, test_dl)

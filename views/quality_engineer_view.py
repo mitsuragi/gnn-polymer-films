@@ -4,9 +4,12 @@ from PySide6.QtCore import Signal
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
 
-from share import AdjustedComboBox, Page
-from db.db_manager import get_datetime_range, get_models, get_model_data, get_forecasting_data
+from gnn.inference_config import InferenceConfig
+from share import AdjustedComboBox, Page, PredictionChartWidget
+from gnn import DefectPredictor
+from db.db_manager import get_datetime_range, get_models, get_model_data, get_training_data, get_defect_limit
 from .defect_trend_window import DefectTrendWindow
+from .forecast_result_window import ForecastResultWindow
 
 class QualityEngineerView(QWidget):
     model = None
@@ -89,19 +92,20 @@ class QualityEngineerView(QWidget):
         date_data_layout.addLayout(data_btns_layout, 1)
 
         self.forecast_btn = QPushButton('Спрогнозировать')
+        self.forecast_btn.clicked.connect(self.forecast)
 
-        self.result_label = QLabel()
+        # self.chart = PredictionChartWidget()
 
         result_layout = QHBoxLayout()
         result_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         result_layout.addWidget(QLabel('Результат прогнозирования: '))
-        result_layout.addWidget(self.result_label)
 
         frame_layout.addLayout(header_layout)
         frame_layout.addLayout(models_layout)
         frame_layout.addLayout(date_data_layout)
         frame_layout.addWidget(self.forecast_btn)
         frame_layout.addLayout(result_layout)
+        # frame_layout.addWidget(self.chart)
         frame_layout.addSpacerItem(QSpacerItem(1, 2000))
 
         layout.addWidget(frame)
@@ -116,31 +120,64 @@ class QualityEngineerView(QWidget):
 
     def load_data(self):
         with self.sessionmaker() as session:
-            model_data = get_model_data(
+            self.model_data = get_model_data(
                 session,
                 self.models_combobox.currentData()
             )
 
-            self.df = get_forecasting_data(
+            self.df = get_training_data(
                 session,
-                model_data['parameters'],
-                int(model_data['coefficients']['Window length']),
-                int(model_data['coefficients']['Step']),
+                self.model_data['defect'],
+                self.model_data['parameters'],
                 self.date_from.dateTime().toPython(),
-                self.date_to.dateTime().toPython(),
+                self.date_to.dateTime().toPython()
             )
 
-            print(self.df)
+            self.limit = get_defect_limit(session, self.model_data['defect'])
 
     def show_defect_trend(self):
         if self.df is None:
             return
         
-        time = self.df['timestamp'].tolist()
-        values = self.df['target'].tolist()
+        df_wo_timestamp = self.df.copy()
+        df_wo_timestamp.drop('timestamp', axis='columns', inplace=True)
+        df_wo_timestamp['target'] = (df_wo_timestamp['target'] > self.limit).astype(int)
 
-        self.graph_window = DefectTrendWindow(time, values)
-        self.graph_window.show()
+        self.result_window = ForecastResultWindow(self.result, df_wo_timestamp)
+        self.result_window.show()
+
+    def forecast(self):
+        if self.df is None or self.model_data is None:
+            return
+
+        df_wo_timestamp = self.df.copy()
+        df_wo_timestamp.drop('timestamp', axis='columns', inplace=True)
+        df_wo_timestamp['target'] = (df_wo_timestamp['target'] > self.limit).astype(int)
+
+        inf_config = InferenceConfig(
+            state_dict_blob=self.model_data['model'],
+            batch_size=32,
+            defect_threshold=0.5,
+            target_col='target',
+            edge_strategy=['pearson', 'spearman'],
+            edge_threshold=0.5,
+            self_loops=False,
+            normalize_features=True,
+        )
+
+        predictor = DefectPredictor(inf_config)
+        predictor.load_model(
+            model_kwargs=dict(in_channels=1, hidden_channels=64,
+                              n_layers=3, heads=4, dropout=0.3)
+        )
+
+        self.result = predictor.predict(df_wo_timestamp)
+
+        print(self.result)
+        
+        print(f"\nСводная таблица (первые 10 строк):")
+        cols = ["prob_defect", "prediction", "true_label", "correct"]
+        print(self.result.summary[cols].head(10).to_string())
 
     def quit_view(self):
         self.nav.navigate(Page.LOGIN)

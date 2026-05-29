@@ -1,22 +1,18 @@
 from PySide6.QtGui import Qt
 from PySide6.QtWidgets import (QDateTimeEdit, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QListView, QSizePolicy, QSpacerItem, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QFrame, QPushButton, QLineEdit)
-from PySide6.QtCore import Signal
 from sqlalchemy.orm import sessionmaker
 import sqlalchemy as sa
 import torch
 from torch_focalloss import BinaryFocalLoss
-from torch.optim import Adam
-from torch_geometric.utils import to_networkx
-import networkx as nx
-import matplotlib.pyplot as plt
+from torch_geometric.loader import DataLoader
 import io
 
+from gnn import build_model, TrainConfig, train
 from share import ParametersListModel, AdjustedComboBox, Page
 from db.db_manager import get_parameters, get_defects, get_datetime_range, get_nn_coeffs, get_training_data, save_model, delete_model, get_models, get_defect_limit
-from data.dataset import get_datasets, get_dataloaders
-from gnn.model import GCN
-import gnn.trainer as tr
 from .defect_trend_window import DefectTrendWindow
+from gnn import PolymerGAT
+from data import PolyFilmDataset, stratified_split
 
 class MathSpecialistView(QWidget):
     model = None
@@ -243,46 +239,60 @@ class MathSpecialistView(QWidget):
         if self.df is None:
             return
 
-        train_ds, eval_ds, test_ds, pos_weight = get_datasets(
-            self.df,
-            int(self.window_combobox.currentText()),
-            self.stage_dict,
-            int(self.step_combobox.currentText()),
-            self.limit
+        df_wo_timestamp = self.df.copy()
+        df_wo_timestamp.drop('timestamp', axis='columns', inplace=True)
+        df_wo_timestamp['target'] = (df_wo_timestamp['target'] > self.limit).astype(int)
+
+        splits = stratified_split(df_wo_timestamp, target_col='target')
+        
+        def make_dataset(split_df):
+            return PolyFilmDataset(
+                split_df,
+                target_col='target',
+                edge_strategy=['pearson', 'spearman'],
+                threshold=0.5,
+                self_loops=False,
+            )
+
+        train_ds = make_dataset(splits.train)
+        val_ds = make_dataset(splits.val)
+        test_ds = make_dataset(splits.test)
+
+        train_loader = DataLoader(train_ds, batch_size=32, shuffle=True)
+        val_loader = DataLoader(val_ds, batch_size=64)
+        test_loader = DataLoader(test_ds, batch_size=64)
+
+        self.model = build_model(
+            in_channels=train_ds.num_node_features,
+            hidden_channels=64,
+            n_layers=3,
+            heads=4,
+            dropout=0.3,
+            edge_dim=1,
+            pooling='concat',
         )
 
-        print(pos_weight)
+        config = TrainConfig(
+            n_epochs        = 100,
+            learning_rate   = 1e-4,
+            weight_decay    = 1e-4,
+            es_patience     = 10,
+            es_monitor      = "loss",
+            es_mode         = "min",
+            focal_alpha     = 0.95,
+            focal_gamma     = 2.0,
+            checkpoint_path = "best_model.pt",
+            log_csv_path    = "training_log.csv",
+        )
 
-        train_dl, eval_dl, test_dl = get_dataloaders(train_ds, eval_ds, test_ds, batch_size=int(self.batch_combobox.currentText()))
-
-        epochs = int(self.epoch_combobox.currentText())
-
-        input_dim = train_ds[0].x.shape[1] 
-        print(input_dim)
-        self.model = GCN(input_dim, 64)
-        print(sum(p.numel() for p in self.model.parameters()))
-
-        criterion = BinaryFocalLoss()
-        optimizer = Adam(self.model.parameters())
-
-        for epoch in range(1, epochs+1):
-            print(epoch)
-
-            train_metrics = tr.train(self.model, train_dl, optimizer, criterion)
-            print('train: ', train_metrics)
-
-            eval_metrics = tr.eval(self.model, eval_dl, criterion)
-            print('eval: ', eval_metrics)
-
-        test_metrics = tr.test(self.model, test_dl)
-        print('test:', test_metrics)
-
-        self.set_metrics(test_metrics)
+        logger = train(self.model, train_loader, val_loader, test_loader, config)
+        best = logger.best(phase='test', key='loss', mode='min')
+        self.set_metrics(best.mae, best.rmse, best.wape, best.precision, best.recall)
 
     def save_model(self):
         if self.model:
             buffer = io.BytesIO()
-            torch.save(self.model, buffer)
+            torch.save(self.model.state_dict(), buffer)
 
             model_blob = buffer.getvalue()
 
@@ -320,12 +330,12 @@ class MathSpecialistView(QWidget):
 
         self.update_table()
 
-    def set_metrics(self, metrics_dict):
-        self.mae_label.setText(f"{metrics_dict['MAE']:.3f}")
-        self.rmse_label.setText(f"{metrics_dict['RMSE']:.3f}")
-        self.wape_label.setText(f"{metrics_dict['WAPE']:.3f}")
-        self.precision_label.setText(f"{metrics_dict['Precision']:.3f}")
-        self.recall_label.setText(f"{metrics_dict['Recall']:.3f}")
+    def set_metrics(self, mae, rmse, wape, prec, rec):
+        self.mae_label.setText(f"{mae:.3f}")
+        self.rmse_label.setText(f"{rmse:.3f}")
+        self.wape_label.setText(f"{wape:.3f}")
+        self.precision_label.setText(f"{prec:.3f}")
+        self.recall_label.setText(f"{rec:.3f}")
 
     def update_table(self):
         with self.sessionmaker() as session:
@@ -353,11 +363,10 @@ class MathSpecialistView(QWidget):
     def load_data(self):
         defect_id = self.defects_combobox.currentData(),
         with self.sessionmaker() as session:
-            self.df, self.stage_dict = get_training_data(
+            self.df = get_training_data(
                 session,
                 self.defects_combobox.currentData(),
                 self.parameters_model.getCheckedIds(),
-                int(self.step_combobox.currentText()),
                 self.date_from.dateTime().toPython(),
                 self.date_to.dateTime().toPython()
             )
