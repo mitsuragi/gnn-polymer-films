@@ -150,6 +150,7 @@ class NNModel(Base):
     FromDateTime: Mapped[Optional[datetime.datetime]]
     ToDateTime: Mapped[Optional[datetime.datetime]]
     Model: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    BestThreshold: Mapped[Optional[float]]
 
     RelevantParameters: Mapped[List['NNModelRelevantParameter']] = relationship(back_populates='Model', cascade='all, delete-orphan')
     Coefficients: Mapped[List['NNModelCoefficient']] = relationship(back_populates='Model', cascade='all, delete-orphan')

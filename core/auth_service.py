@@ -8,7 +8,7 @@ class AuthService:
         self.current_user = None
         self.sessionmaker = sessionmaker
 
-    def login(self, username: str, password: str) -> None | User:
+    def authenticate(self, username: str, password: str) -> None | User:
         with self.sessionmaker() as session:
             user = get_user(session, username)
 

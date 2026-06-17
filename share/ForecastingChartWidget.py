@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QButtonGroup, QToolButton,
 )
  
-from gnn import PredictionResult
+# from gnn import PredictionResult
 
 PALETTE = {
     "bg":           "#1C1C1E",

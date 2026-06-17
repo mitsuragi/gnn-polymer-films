@@ -1,6 +1,6 @@
 import csv
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 
 @dataclass
 class EpochMetrics:
@@ -8,24 +8,19 @@ class EpochMetrics:
   phase:     str          # "train" | "val" | "test"
   loss:      float
  
-  # Регрессионные метрики (на вероятностях / мягких предсказаниях)
-  mae:       float = 0.0
-  rmse:      float = 0.0
-  wape:      float = 0.0
- 
   # Классификационные метрики (на жёстких предсказаниях)
   precision: float = 0.0
   recall:    float = 0.0
   f1:        float = 0.0
   accuracy:  float = 0.0
+  pr_auc:    float = 0.0
  
   duration_sec: float = 0.0
  
   def __str__(self) -> str:
     return (
         f"[{self.phase.upper():>5}] epoch={self.epoch:>3d} | "
-        f"loss={self.loss:.4f}  "
-        f"mae={self.mae:.4f}  rmse={self.rmse:.4f}  wape={self.wape:.4f}  "
+        f"loss={self.loss:.4f}  pr_auc={self.pr_auc:.4f} "
         f"prec={self.precision:.4f}  rec={self.recall:.4f}  "
         f"f1={self.f1:.4f}  acc={self.accuracy:.4f}  "
         f"({self.duration_sec:.1f}s)"

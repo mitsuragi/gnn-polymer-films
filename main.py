@@ -1,66 +1,81 @@
-from PySide6.QtWidgets import (QApplication, QMainWindow, QStackedWidget)
-from PySide6.QtCore import QFile, QTextStream
+import sys
+import os
+ 
+from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore    import Qt, QFile, QTextStream
+from PySide6.QtGui     import QFontDatabase, QFont
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
-
-import sys
-
-from views import LoginView, RegisterView, MathSpecialistView, QualityEngineerView
+ 
+from ui.login_window import LoginWindow
+from ui.main_window  import MainWindow
 from core.auth_service import AuthService
-from core.navigation import NavigationManager
-from share import Page
 
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__() 
+class AppController:
+    def __init__(self, app: QApplication):
+        self.engine = sa.create_engine('sqlite:////home/mitsuri/Code/Python/gnn/extcaland/users.db', echo=False)
+        self.sessionmaker = sessionmaker(bind=self.engine)
 
-        self.setWindowTitle('GNN')
-        self.setFixedSize(1600, 900)
-        self.load_styles()
-        self.stack = QStackedWidget()
-        self.setCentralWidget(self.stack)
+        self._app = app
+        self._auth = AuthService(self.sessionmaker)
+        self._login_window: LoginWindow | None = None
+        self._main_win: MainWindow | None = None
 
-        self.nav = NavigationManager(self.stack)
+    def start(self) -> None:
+        self._show_login()
 
-        self.nav.register(Page.LOGIN, lambda nav: LoginView(nav))
-        self.nav.register(Page.REGISTER, lambda nav: RegisterView(nav))
-        self.nav.register(Page.MATH, lambda nav: MathSpecialistView(nav))
-        self.nav.register(Page.QUALITY, lambda nav: QualityEngineerView(nav))
+    def _show_login(self) -> None:
+        if self._main_win:
+            self._main_win.close()
+            self._main_win = None
 
-        self.nav.navigate(Page.LOGIN)
+        self._login_window = LoginWindow()
+        self._login_window.login_requested.connect(self._on_login)
+        self._login_window.setWindowTitle('GNN')
+        self._login_window.resize(900,600)
+        self._login_window.setMinimumSize(700,500)
+        self._login_window.show()
 
-    def show_login(self):
-        self.nav.navigate(Page.LOGIN)
+    def _on_login(self, username: str, password: str) -> None:
+        result = self._auth.authenticate(username, password)
 
-    def show_register(self):
-        self.nav.navigate(Page.REGISTER)
+        if result:
+            self._login_window.hide()
+            self._open_main_window(result.Username, result.Role)
+        else:
+            self._login_window.show_error('Неверный логин или пароль')
 
-    def show_math_spec_view(self):
-        self.nav.navigate(Page.MATH)
+    def _open_main_window(self, username: str, role: str) -> None:
+        self._main_win = MainWindow(username, role)
+        self._main_win.logout_requested.connect(self._on_logout)
+        self._main_win.show()
 
-    def show_quality_eng_view(self):
-        self.nav.navigate(Page.QUALITY)
+    def _on_logout(self) -> None:
+        self._show_login()
 
-    def on_login_success(self, user):
-        if user.Role == 'math':
-            self.show_math_spec_view()
-        elif user.Role == 'quality':
-            self.show_quality_eng_view()
+def load_styles(app: QApplication) -> None:
+    qss_path = os.path.join(os.path.dirname(__file__), 'styles', 'style.qss')
+    if os.path.exists(qss_path):
+        with open(qss_path, 'r', encoding='utf-8') as f:
+            app.setStyleSheet(f.read())
+    else:
+        print(f'[Warning] Stylesheet not found: {qss_path}')
 
-    def load_styles(self):
-        style_file = QFile("styles/styles.qss")
+def main() -> int:
+    os.environ.setdefault('QT_ENABLE_HIGHDPI_SCALING', '1')
     
-        if not style_file.exists():
-            print('file not found')
-            return
-    
-        if style_file.open(QFile.OpenModeFlag.ReadOnly | QFile.OpenModeFlag.Text):
-            stream = QTextStream(style_file)
-            self.setStyleSheet(stream.readAll())
-            style_file.close()
+    app = QApplication(sys.argv)
+    app.setApplicationName('GNN')
+
+    font = QFont('Segoe UI', 10)
+    app.setFont(font)
+
+    load_styles(app)
+
+    controller = AppController(app)
+    controller.start()
+
+    return app.exec()
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    sys.exit(main())

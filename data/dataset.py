@@ -62,8 +62,13 @@ class PolyFilmDataset(Dataset):
     target_col: str = 'target',
     edge_strategy: str | list[str] = 'pearson',
     threshold: float = 0.3,
-    self_loops: bool = True,
+    top_k_edges_per_node: int | None = None,
+    self_loops: bool = False,
     normalize_features: bool = True,
+    feature_mean: pd.Series | None = None,
+    feature_std: pd.Series | None = None,
+    edge_index: torch.Tensor | None = None,
+    edge_attr: torch.Tensor | None = None,
   ):
     super().__init__()
 
@@ -74,8 +79,16 @@ class PolyFilmDataset(Dataset):
     labels = df[target_col].values.astype(np.int64)
 
     if normalize_features:
-      self._mean = feature_df.mean()
-      self._std = feature_df.std().replace(0, 1)
+      if feature_mean is None:
+        self._mean = feature_df.mean()
+      else:
+        self._mean = feature_mean.reindex(self._feature_cols).astype(np.float32)
+
+      if feature_std is None:
+        self._std = feature_df.std().replace(0, 1)
+      else:
+        self._std = feature_std.reindex(self._feature_cols).replace(0, 1).astype(np.float32)
+
       feature_df = (feature_df - self._mean) / self._std
     else:
       self._mean = None
@@ -84,12 +97,17 @@ class PolyFilmDataset(Dataset):
     self._features: np.ndarray = feature_df.values
     self._labels: np.ndarray = labels
 
+    if edge_index is not None and edge_attr is not None:
+      self._edge_index = edge_index.clone().detach().long()
+      self._edge_attr = edge_attr.clone().detach().float()
+      return
+
     strategies = [edge_strategy] if isinstance(edge_strategy, str) else edge_strategy
     for s in strategies:
       if s not in EDGE_STRATEGIES:
         raise ValueError(
           f"Неизвестная стратегия '{s}'. "
-          f"Доступные: {list(EGDE_STRATEGIES)}"
+          f"Доступные: {list(EDGE_STRATEGIES)}"
         )
 
     weight_matrices = [
@@ -100,7 +118,24 @@ class PolyFilmDataset(Dataset):
     combined: np.ndarray = np.mean(weight_matrices, axis=0)
     np.fill_diagonal(combined, 0.0)
 
-    src, dst = np.where(combined >= threshold)
+    if top_k_edges_per_node is not None:
+      src_list, dst_list = [], []
+      for i in range(self._n_nodes):
+        row = combined[i].copy()
+        row[i] = 0.0
+        candidates = np.flatnonzero(row >= threshold)
+        if len(candidates) == 0:
+          continue
+        if len(candidates) > top_k_edges_per_node:
+          best = np.argpartition(row[candidates], -top_k_edges_per_node)[-top_k_edges_per_node:]
+          candidates = candidates[best]
+        src_list.extend([i] * len(candidates))
+        dst_list.extend(candidates.tolist())
+      src = np.asarray(src_list, dtype=np.int64)
+      dst = np.asarray(dst_list, dtype=np.int64)
+    else:
+      src, dst = np.where(combined >= threshold)
+
     edge_weights = combined[src, dst].astype(np.float32)
 
     if self_loops:
@@ -122,15 +157,14 @@ class PolyFilmDataset(Dataset):
   def get(self, idx: int) -> Data:
     """
     Возвращает граф для одного наблюдения.
- 
+
     Граф:
     x          — (N_nodes, 1)  значения признаков для данного наблюдения
     edge_index — (2, E)        индексы рёбер (общие для всех графов)
     edge_attr  — (E, 1)        веса рёбер (общие для всех графов)
     y          — (1,)          бинарная метка
     """
-    
-    # Значения признаков текущего наблюдения — каждый узел получает своё число
+
     node_features = torch.tensor(
       self._features[idx], dtype=torch.float32
     ).unsqueeze(1)
@@ -156,6 +190,22 @@ class PolyFilmDataset(Dataset):
   @property
   def feature_names(self) -> list[str]:
     return self._feature_cols
+
+  @property
+  def feature_mean(self) -> pd.Series | None:
+    return self._mean.copy() if self._mean is not None else None
+
+  @property
+  def feature_std(self) -> pd.Series | None:
+    return self._std.copy() if self._std is not None else None
+
+  @property
+  def edge_index(self) -> torch.Tensor:
+    return self._edge_index.clone()
+
+  @property
+  def edge_attr(self) -> torch.Tensor:
+    return self._edge_attr.clone()
 
   @property
   def num_edges(self) -> int:

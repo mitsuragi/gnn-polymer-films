@@ -37,7 +37,7 @@ def get_nn_coeffs(session: Session):
 def get_defect_limit(session: Session, id_defect: int):
     stmt = select(Limit.HighLimitValue).where(Limit.IdParameter == id_defect)
 
-    res = session.execute(stmt).one_or_none()
+    res = session.execute(stmt).scalar_one_or_none()
 
     return res
 
@@ -87,7 +87,7 @@ def get_training_data(
 
     for param_id in df_pivot.columns:
         if param_id == defect_id:
-            new_columns[param_id] = 'target'
+            new_columns[param_id] = 'target_raw'
         else:
             new_columns[param_id] = param_info.get(param_id, f'param_{param_id}')
 
@@ -100,7 +100,10 @@ def get_training_data(
     return df_pivot
 
 def get_models(session: Session):
-    stmt = select(NNModel.IdModel, NNModel.Name)
+    stmt = (select(NNModel.IdModel, NNModel.Name, Parameter.ParameterNameRu)
+           .join(NNModelRelevantParameter, NNModel.IdModel == NNModelRelevantParameter.IdModel)
+           .join(Parameter, NNModelRelevantParameter.IdParameter == Parameter.IdParameter)
+           .where(NNModelRelevantParameter.IdParameterType == 2))
 
     models = session.execute(stmt).all()
 
@@ -139,6 +142,7 @@ def get_model_data(
         'model': model.Model,
         'parameters': parameters,
         'defect': defect,
+        'threshold': model.BestThreshold,
     }
 
 def save_model(
@@ -147,6 +151,7 @@ def save_model(
     from_datetime,
     to_datetime,
     model,
+    threshold,
     parameters,
     defect,
     coefficients
@@ -155,7 +160,8 @@ def save_model(
         Name=model_name,
         FromDateTime=from_datetime,
         ToDateTime=to_datetime,
-        Model=model
+        Model=model,
+        BestThreshold=threshold,
     )
 
     session.add(nn_model)

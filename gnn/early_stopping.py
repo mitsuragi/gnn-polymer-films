@@ -31,6 +31,7 @@ class EarlyStopping:
     self._best_score: float | None = None
     self._counter = 0
     self.triggered = False
+    self.last_improved = False
 
   def step(self, score: float, model: PolymerGAT) -> bool:
     """
@@ -41,6 +42,7 @@ class EarlyStopping:
     True, если обучение следует продолжать; False — остановить.
     """
     improved = self._is_improved(score)
+    self.last_improved = improved
 
     if improved:
       self._best_score = score
@@ -60,7 +62,7 @@ class EarlyStopping:
     if self.mode == 'min':
       return score < self._best_score - self.min_delta
 
-    return score > self._best_score + self.min_delta
+    return score >= self._best_score + self.min_delta
 
   @property
   def best_score(self) -> float | None:
