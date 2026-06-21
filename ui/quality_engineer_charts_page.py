@@ -1,9 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QTabWidget, QPushButton, QGroupBox, QFrame
+    QTabWidget, QFrame
 )
-from PySide6.QtCore import Qt
-import numpy as np
  
 from ui.widgets.matplotlib_widget import MatplotlibWidget
 

@@ -2,10 +2,9 @@ import io
 from PySide6.QtWidgets import (
     QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDateTimeEdit, QTabWidget, QSizePolicy, QSplitter, QFrame
+    QDateTimeEdit, QFrame
 )
-from PySide6.QtCore import QThread, Qt, QDateTime, Signal
-from sqlalchemy.orm import defer
+from PySide6.QtCore import QThread, Qt, Signal
 from sqlalchemy.orm.session import sessionmaker
 from torch.nn import Module
 import torch
@@ -236,23 +235,6 @@ class QualityEngineerPage(QWidget):
         self._load_thread.finished.connect(self._cleanup_load_thread)
 
         self._load_thread.start()
-
-        # with self._sessionmaker() as session:
-        #     self._df = get_training_data(
-        #         session,
-        #         self._model_data['defect'],
-        #         self._model_data['parameters'],
-        #         from_dt,
-        #         to_dt
-        #     )
-        #
-        #     self._defect_limit = get_defect_limit(session, self._model_data['defect'])
-
-        if self._df is not None:
-            timestamps = self._df['timestamp'].tolist()
-            values = self._df['target_raw'].tolist()
-
-            self.production_data_loaded.emit(timestamps, values)
 
     def _load_production_data_impl(self, from_dt, to_dt):
         with self._sessionmaker() as session:

@@ -1,10 +1,9 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QStackedWidget, QFrame,
-    QSizePolicy, QSpacerItem, QStatusBar
+    QSizePolicy, QStatusBar
 )
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, Signal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
  

@@ -1,8 +1,11 @@
 import numpy as np
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QSizePolicy
 from sklearn.metrics import precision_recall_curve, auc
+import pandas as pd
  
 import matplotlib
+
+from gnn.metrics_logger import MetricsLogger
 matplotlib.use("QtAgg")                          # Qt back-end
  
 import matplotlib.pyplot as plt
@@ -108,28 +111,6 @@ class MatplotlibWidget(QWidget):
         self.ax.legend(lines1, labels1, loc='upper right', fontsize=9)
 
         self._draw()
- 
-    def plot_demo_training(self) -> None:
-        """
-        Placeholder: loss/epoch training graph.
-        TODO: replace with real training history emitted by the model trainer.
-        """
-        self._reset()
-        epochs     = np.arange(1, 51)
-        train_loss = 0.9 * np.exp(-epochs / 15) + np.random.normal(0, 0.015, 50)
-        val_loss   = 0.95 * np.exp(-epochs / 18) + np.random.normal(0, 0.02, 50) + 0.04
- 
-        self.ax.plot(epochs, train_loss, color=COLORS[0], label="Train Loss", lw=2)
-        self.ax.plot(epochs, val_loss,   color=COLORS[1], label="Val Loss",
-                     lw=2, linestyle="--")
-        self.ax.fill_between(epochs, train_loss, val_loss,
-                             alpha=0.07, color=COLORS[0])
- 
-        self.ax.set_title("Кривая обучения (Loss / Epoch)", fontsize=11)
-        self.ax.set_xlabel("Эпохи")
-        self.ax.set_ylabel("Loss")
-        self.ax.legend(fontsize=9)
-        self._draw()
 
     def plot_bar_chart(self, values) -> None:
         self._reset()
@@ -212,4 +193,21 @@ class MatplotlibWidget(QWidget):
         self.ax.set_xlim(range_min, range_max)
         self.ax.legend(fontsize=9)
 
+        self._draw()
+
+    def plot_metric(self, df: pd.DataFrame, metric: str) -> None:
+        self._reset()
+
+        for phase, color, ls in [('train', COLORS[0], '-'), ('val', COLORS[1], '--')]:
+            d = df[df['phase'] == phase]
+            self.ax.plot(d['epoch'], d[metric], color=color, ls=ls,
+                         linewidth=1.8, marker='o', markersize=3, label=phase)
+        self.ax.set_title(f'{metric.upper() if metric=='pr-auc' else metric.capitalize()} по эпохам')
+        self.ax.set_xlabel('Эпоха')
+        self.ax.set_ylabel(metric.upper() if metric=='pr-auc' else metric.capitalize())
+        self.ax.set_ylim(0, 1)
+        self.ax.grid(True, alpha=0.4)
+        lines1, labels1 = self.ax.get_legend_handles_labels()
+        self.ax.legend(lines1, labels1, loc='lower right', fontsize=9)
+        
         self._draw()

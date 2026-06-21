@@ -1,20 +1,22 @@
 import io
 
 from PySide6.QtWidgets import (
-    QFrame, QListView, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
+    QFrame, QListView, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDateTimeEdit, QTabWidget, QSizePolicy, QSplitter,
-    QSpinBox, QProgressBar, QTextEdit, QLineEdit
+    QDateTimeEdit, QSplitter,
+    QSpinBox, QTextEdit, QLineEdit
 )
-from PySide6.QtCore import Qt, QDateTime, Signal
+from PySide6.QtCore import Qt, Signal, QThread
 from sqlalchemy.orm.session import sessionmaker
 import torch
 from torch.nn import Module
 from pandas import DataFrame
 from torch_geometric.loader import DataLoader
  
+from core.worker import Worker
 from data.dataset import PolyFilmDataset
 from data.splitter import make_supervised_timeseries_frame, temporal_episode_split
+from gnn.metrics_logger import MetricsLogger
 from gnn.train_config import TrainConfig
 from share.AdjustedComboBox import AdjustedComboBox
 from share.ParametersListModel import ParametersListModel
@@ -24,16 +26,17 @@ from gnn.model import build_model
 
 class MathematicalSpecialistPage(QWidget):
     training_data_loaded = Signal(list, list)
-    training_complete = Signal()
+    training_complete = Signal(MetricsLogger)
 
     _model: Module | None = None
     _df: DataFrame | None = None
     _best_threshold: float | None = None
+    _logger: MetricsLogger | None = None
     _metrics = {
-        'Precision': 0,
-        'Recall': 0,
-        'F1-score': 0,
-        'PR-AUC': 0,
+        'Precision': 0.0,
+        'Recall': 0.0,
+        'F1-score': 0.0,
+        'PR-AUC': 0.0,
     }
 
     def __init__(self, sessionmaker: sessionmaker,
@@ -41,6 +44,12 @@ class MathematicalSpecialistPage(QWidget):
         super().__init__(parent)
         self.setObjectName('mathSpecialstPage')
         self._sessionmaker = sessionmaker
+
+        self._load_thread: QThread | None = None
+        self._load_worker: Worker | None = None
+        self._train_thread: QThread | None = None
+        self._train_worker: Worker | None = None
+
         self._build_ui()
         self._populate_saved_models()
 
@@ -362,18 +371,37 @@ class MathematicalSpecialistPage(QWidget):
         self.metrics_table.setRowCount(len(self._metrics))
         for row, (metric, value) in enumerate(self._metrics.items()):
             self.metrics_table.setItem(row, 0, QTableWidgetItem(metric))
-            self.metrics_table.setItem(row, 1, QTableWidgetItem(str(value)))
+            self.metrics_table.setItem(row, 1, QTableWidgetItem(f'{value:.4f}'))
 
-    # TODO
     def load_training_data(self) -> None:
+        if self._load_thread is not None:
+            return
+
         defect_id = self.defect_combobox.currentData()
 
         parameters = self.parameters_model.getCheckedIds()
         from_dt = self.train_start.dateTime().toPython()
         to_dt = self.train_end.dateTime().toPython()
 
+        self.load_training_btn.setEnabled(False)
+        self.load_training_btn.setText('Загрузка...')
+
+        self._load_thread = QThread(self)
+        self._load_worker = Worker(self._load_training_data_impl, defect_id, parameters, from_dt, to_dt)
+        self._load_worker.moveToThread(self._load_thread)
+
+        self._load_thread.started.connect(self._load_worker.run)
+        self._load_worker.finished.connect(self._on_data_loaded)
+        self._load_worker.error.connect(self._on_load_error)
+        self._load_worker.finished.connect(self._load_thread.quit)
+        self._load_worker.error.connect(self._load_thread.quit)
+        self._load_thread.finished.connect(self._cleanup_load_thread)
+
+        self._load_thread.start()
+
+    def _load_training_data_impl(self, defect_id, parameters, from_dt, to_dt):
         with self._sessionmaker() as session:
-            self._df = get_training_data(
+            df = get_training_data(
                 session,
                 defect_id,
                 parameters,
@@ -381,18 +409,58 @@ class MathematicalSpecialistPage(QWidget):
                 to_dt
             )
 
-            self._defect_limit = get_defect_limit(session, defect_id)
-        
+            defect_limit = get_defect_limit(session, defect_id)
+
+        return df, defect_limit
+
+    def _on_data_loaded(self, result) -> None:
+        df, defect_limit = result
+        self._df, self._defect_limit = df, defect_limit
+
+        self.load_training_btn.setEnabled(True)
+        self.load_training_btn.setText('Загрузить данные')
+
         if self._df is not None:
             timestamps = self._df['timestamp'].tolist()
             values = self._df['target_raw'].tolist()
 
             self.training_data_loaded.emit(timestamps, values)
 
+    def _on_load_error(self, message: str) -> None:
+        self.load_training_btn.setEnabled(True)
+        self.load_training_btn.setText('Загрузить данные')
+        QMessageBox.critical(self, 'Ошибка', f'Не удалось загрузить данные:\n{message}')
+
+    def _cleanup_load_thread(self) -> None:
+        self._load_worker.deleteLater()
+        self._load_thread.deleteLater()
+        self._load_worker = None
+        self._load_thread = None
+
     def train_model(self) -> None:
         if self._df is None:
             return
 
+        if self._train_thread is not None:
+            return
+
+        self.train_btn.setEnabled(False)
+        self.train_btn.setText('Выполняется')
+
+        self._train_thread = QThread(self)
+        self._train_worker = Worker(self._train_model_impl)
+        self._train_worker.moveToThread(self._train_thread)
+        
+        self._train_thread.started.connect(self._train_worker.run)
+        self._train_worker.finished.connect(self._on_train_finished)
+        self._train_worker.error.connect(self._on_train_error)
+        self._train_worker.finished.connect(self._train_thread.quit)
+        self._train_worker.error.connect(self._train_thread.quit)
+        self._train_thread.finished.connect(self._cleanup_train_thread)
+
+        self._train_thread.start()
+
+    def _train_model_impl(self):
         FORECAST_HORIZON = 10
 
         df = make_supervised_timeseries_frame(
@@ -489,11 +557,36 @@ class MathematicalSpecialistPage(QWidget):
 
         train_labels = splits.train['target'].values
 
-        self._model, self._best_threshold = train(model, train_ds, val_loader, test_loader, config, train_labels=train_labels)
+        logger, model, best_threshold = train(model, train_ds, val_loader, test_loader, config, train_labels=train_labels)
 
-        # best = logger.best(phase='val', key=config.es_monitor, mode=config.es_mode)
+        return logger, model, best_threshold
 
-        self.training_complete.emit()
+    def _on_train_finished(self, result) -> None:
+        self._logger, self._model, self._best_threshold = result
+
+        self.train_btn.setEnabled(True)
+        self.train_btn.setText('Обучить модель')
+
+        test_metrics = self._logger.history[-1]
+        self._metrics['Precision'] = test_metrics.precision
+        self._metrics['Recall'] = test_metrics.recall
+        self._metrics['F1-score'] = test_metrics.f1
+        self._metrics['PR-AUC'] = test_metrics.pr_auc
+        self._set_metrics_table()
+
+        self.training_complete.emit(self._logger)
+
+    def _on_train_error(self, message: str) -> None:
+        self.train_btn.setEnabled(True)
+        self.train_btn.setText('Обучить модель')
+        
+        QMessageBox.critical(self, 'Ошибка', f'При обучении возникла ошибка:\n{message}')
+
+    def _cleanup_train_thread(self) -> None:
+        self._train_worker.deleteLater()
+        self._train_thread.deleteLater()
+        self._train_worker = None
+        self._train_thread = None
 
     def save_model(self) -> None:
         if self._model:

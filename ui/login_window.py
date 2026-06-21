@@ -1,9 +1,8 @@
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QFrame, QSpacerItem, QSizePolicy
+    QWidget, QVBoxLayout, QLabel,
+    QLineEdit, QPushButton, QFrame
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QIcon
  
 from ui.register_dialog import RegisterDialog
 
@@ -32,7 +31,8 @@ class LoginWindow(QWidget):
         brand_box = QVBoxLayout()
         brand_box.setSpacing(4)
  
-        title = QLabel("GNN")
+        title = QLabel("Система прогнозирования качества пленок")
+        title.setWordWrap(True)
         title.setObjectName("loginTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
  

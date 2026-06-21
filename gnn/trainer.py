@@ -330,7 +330,7 @@ def train(
         print(f"{'='*70}")
         print(test_metrics)
 
-    return model, best_threshold
+    return logger, model, best_threshold
 
 def predict(
     model,

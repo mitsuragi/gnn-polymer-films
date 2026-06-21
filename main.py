@@ -1,9 +1,8 @@
 import sys
 import os
  
-from PySide6.QtWidgets import QApplication, QMessageBox
-from PySide6.QtCore    import Qt, QFile, QTextStream
-from PySide6.QtGui     import QFontDatabase, QFont
+from PySide6.QtWidgets import QApplication
+from PySide6.QtGui     import QFont
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
  

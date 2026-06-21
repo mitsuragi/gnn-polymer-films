@@ -1,9 +1,8 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QFrame, QSizePolicy, QSpacerItem
+    QPushButton, QComboBox, QFrame
 )
-from PySide6.QtCore import QLine, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, Signal
 
 class RegisterDialog(QDialog):
     register_requested = Signal(str, str, str)
