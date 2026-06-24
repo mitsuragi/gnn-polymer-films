@@ -21,12 +21,19 @@ from gnn.trainer import predict
 
 class QualityEngineerPage(QWidget):
     production_data_loaded = Signal(list, list)
-    prediction_ready = Signal(list, list, list, list, float)
+    prediction_ready = Signal(list, list, list, list, list, float)
 
     _model: Module | None = None
     _df: DataFrame | None = None
     _model_data: dict | None = None
     _selected_model: int | None = None
+
+    _metrics = {
+        'Precision': 0.0,
+        'Recall': 0.0,
+        'F1-score': 0.0,
+        'PR-AUC': 0.0,
+    }
 
     def __init__(self, sessionmaker: sessionmaker,
                  parent: QWidget | None = None):
@@ -59,12 +66,19 @@ class QualityEngineerPage(QWidget):
         div.setObjectName('sidebarDivider')
         root.addWidget(div)
 
+        blocks = QVBoxLayout()
+
         blocks_row = QHBoxLayout()
         blocks_row.setSpacing(14)
-        blocks_row.addWidget(self._build_model_block(), stretch=5)
-        blocks_row.addWidget(self._build_data_block(), stretch=3)
+        blocks_row.addWidget(self._build_data_block(), stretch=2)
         blocks_row.addWidget(self._build_prediction_block(), stretch=2)
-        root.addLayout(blocks_row)
+        blocks_row.addWidget(self._build_metrics_block(), stretch=1)
+
+        blocks.addLayout(blocks_row, stretch=1)
+
+        blocks.addWidget(self._build_model_block(), stretch=1)
+
+        root.addLayout(blocks)
 
         hint = QLabel("💡  Для просмотра графиков перейдите в раздел «Графики» в боковом меню.")
         hint.setObjectName("sectionLabel")
@@ -183,6 +197,35 @@ class QualityEngineerPage(QWidget):
 
         return grp
 
+    def _build_metrics_block(self) -> QGroupBox:
+        grp = QGroupBox('Метрики')
+        grp.setObjectName('metricsGroup')
+        
+        layout = QVBoxLayout(grp)
+        layout.setSpacing(10)
+
+        self.metrics_table = QTableWidget()
+        self.metrics_table.setObjectName('metricsTable')
+        self.metrics_table.setColumnCount(2)
+        self.metrics_table.setHorizontalHeaderLabels([
+            'Метрика', 'Значение'
+        ])
+        self.metrics_table.setSelectionMode(
+            QTableWidget.SelectionMode.NoSelection)
+        self.metrics_table.setSortingEnabled(False)
+        self.metrics_table.setAlternatingRowColors(False)
+        self.metrics_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers)
+        self.metrics_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch)
+        self.metrics_table.verticalHeader().setVisible(False)
+
+        self._set_metrics_table()
+
+        layout.addWidget(self.metrics_table)
+
+        return grp
+
     def _populate_models_table(self) -> None:
         with self._sessionmaker() as session:
             models = get_models(session)
@@ -194,13 +237,20 @@ class QualityEngineerPage(QWidget):
             self.models_table.setItem(row, 2, QTableWidgetItem(metric))
         self.models_table.resizeRowsToContents()
 
+    def _set_metrics_table(self) -> None:
+        self.metrics_table.setRowCount(len(self._metrics))
+        for row, (metric, value) in enumerate(self._metrics.items()):
+            self.metrics_table.setItem(row, 0, QTableWidgetItem(metric))
+            self.metrics_table.setItem(row, 1, QTableWidgetItem(f'{value:.4f}'))
+
     # TODO
     def select_model(self) -> None:
         selected = self.models_table.currentRow()
         if selected >= 0:
             id = self.models_table.item(selected, 0).text()
+            name = self.models_table.item(selected, 1).text()
             self._selected_model = int(id) 
-            self.selected_model_label.setText(id)
+            self.selected_model_label.setText(name)
             self.selected_model_label.setStyleSheet(
                 "background: #F0FDF4; border: 1px solid #86EFAC;"
                 "border-radius: 4px; padding: 6px;"
@@ -347,7 +397,7 @@ class QualityEngineerPage(QWidget):
         model.to(device)
         model.eval()
 
-        true, prob, pred = predict(model, loader, bundle['best_threshold'])
+        true, prob, pred, metrics = predict(model, loader, bundle['best_threshold'])
         tp = int(np.sum((pred == 1) & (true == 1)))
         tn = int(np.sum((pred == 0) & (true == 0)))
         fp = int(np.sum((pred == 1) & (true == 0)))
@@ -356,15 +406,22 @@ class QualityEngineerPage(QWidget):
 
         timestamps = df['timestamp'].tolist()
         
-        return timestamps, true, prob, answer_distribution, bundle['best_threshold']
+        return timestamps, true, prob, pred, answer_distribution, bundle['best_threshold'], metrics
 
     def _on_prediction_ready(self, result) -> None:
-        timestamps, true, pred, prob, threshold = result
+        timestamps, true, prob, pred, answer_distribution, threshold, metrics = result
 
         self.run_prediction_btn.setEnabled(True)
         self.run_prediction_btn.setText('Выполнить прогноз')
 
-        self.prediction_ready.emit(timestamps, true, pred, prob, threshold)
+        self._metrics['Precision'] = metrics.precision
+        self._metrics['Recall'] = metrics.recall
+        self._metrics['F1-score'] = metrics.f1
+        self._metrics['PR-AUC'] = metrics.pr_auc
+
+        self._set_metrics_table()
+
+        self.prediction_ready.emit(timestamps, true, prob, pred, answer_distribution, threshold)
 
     def _on_prediction_error(self, message: str) -> None:
         self.run_prediction_btn.setEnabled(True)

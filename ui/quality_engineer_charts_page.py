@@ -98,28 +98,44 @@ class QualityEngineerChartsPage(QWidget):
 
         tab5 = QWidget()
         tab5_layout = QVBoxLayout(tab5)
-        tab5_layout.setContentsMargins(0, 8, 0, 0)
+        tab5_layout.setContentsMargins(0, 0, 0, 0)
 
         desc5 = QLabel(
-            'Временной ряд значений выбранного показателя качества'
+            'График действительных и спрогнозированных значений'
         )
         desc5.setObjectName('sectionLabel')
         desc5.setWordWrap(True)
         tab5_layout.addWidget(desc5)
 
+        self.prediction_chart = MatplotlibWidget()
+        self.prediction_chart.setObjectName('qePredictionChartFull')
+        tab5_layout.addWidget(self.prediction_chart, 1)
+        self.tab_widget.addTab(tab5, 'График прогноза')
+
+        tab6 = QWidget()
+        tab6_layout = QVBoxLayout(tab6)
+        tab6_layout.setContentsMargins(0, 8, 0, 0)
+
+        desc6 = QLabel(
+            'Временной ряд значений выбранного показателя качества'
+        )
+        desc6.setObjectName('sectionLabel')
+        desc6.setWordWrap(True)
+        tab6_layout.addWidget(desc6)
+
         self.production_chart = MatplotlibWidget()
         self.production_chart.setObjectName('qeProductionChartFull')
-        tab5_layout.addWidget(self.production_chart, 1)
-        self.tab_widget.addTab(tab5, 'Производственные данные')
+        tab6_layout.addWidget(self.production_chart, 1)
+        self.tab_widget.addTab(tab6, 'Производственные данные')
 
         root.addWidget(self.tab_widget, 1)
 
-    def update_prediction_graph(self, time, y_true, y_prob, answer_distribution, threshold) -> None:
+    def update_prediction_graph(self, time, y_true, y_prob, y_pred, answer_distribution, threshold) -> None:
 
         self.bar_chart.plot_bar_chart(answer_distribution)
         self.auc_chart.plot_pr_auc_chart(y_true, y_prob)
         self.distribution_chart.plot_class_distribution(y_true, y_prob, threshold)
-        # self.prediction_chart.plot_demo_prediction(time, y_true, y_pred)
+        self.prediction_chart.plot_demo_prediction(time, y_true, y_pred)
 
     def update_production_graph(self, time, values) -> None:
         self.production_chart.plot_demo_production(time, values)

@@ -4,6 +4,7 @@ from sklearn.metrics import precision_recall_curve, auc
 import pandas as pd
  
 import matplotlib
+import matplotlib.dates as mdates
 
 from gnn.metrics_logger import MetricsLogger
 matplotlib.use("QtAgg")                          # Qt back-end
@@ -99,13 +100,23 @@ class MatplotlibWidget(QWidget):
 
     def plot_demo_production(self, timestamps, values) -> None:
         self._reset()
-        t  = [ts.timestamp() for ts in timestamps]
- 
-        self.ax.plot(t, values, color=COLORS[0], label="Дефект", lw=1)
+        # t  = [ts.timestamp() for ts in timestamps]
+
+        self.ax.plot(timestamps, values, color=COLORS[0], label="Дефект", lw=1)
  
         self.ax.set_title("Значения дефекта", fontsize=11)
         self.ax.set_xlabel("Дата и время")
         self.ax.set_ylabel("Значение дефекта")
+
+        self.ax.xaxis.set_major_formatter(
+            mdates.DateFormatter('%d.%m.%Y %H:%M')
+        )
+
+        self.ax.xaxis.set_major_locator(
+            mdates.AutoDateLocator()
+        )
+
+        self.fig.autofmt_xdate()
  
         lines1, labels1 = self.ax.get_legend_handles_labels()
         self.ax.legend(lines1, labels1, loc='upper right', fontsize=9)

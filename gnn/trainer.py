@@ -355,4 +355,4 @@ def predict(
     )
     print(metrics)
 
-    return true, prob, pred
+    return true, prob, pred, metrics

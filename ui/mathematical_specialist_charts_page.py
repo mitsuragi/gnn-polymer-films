@@ -49,7 +49,7 @@ class MathematicalSpecialistChartsPage(QWidget):
         self.precision_chart = MatplotlibWidget()
         self.precision_chart.setObjectName('msTrainingChartFull')
         tab1_layout.addWidget(self.precision_chart, 1)
-        self.tab_widget.addTab(tab1, 'График обучения')
+        self.tab_widget.addTab(tab1, 'Precision')
 
         tab2 = QWidget()
         tab2_layout = QVBoxLayout(tab2)
@@ -65,7 +65,7 @@ class MathematicalSpecialistChartsPage(QWidget):
         self.recall_chart = MatplotlibWidget()
         self.recall_chart.setObjectName('msTrainingChartFull')
         tab2_layout.addWidget(self.recall_chart, 1)
-        self.tab_widget.addTab(tab2, 'График обучения')
+        self.tab_widget.addTab(tab2, 'Recall')
 
         tab3 = QWidget()
         tab3_layout = QVBoxLayout(tab3)
@@ -81,7 +81,7 @@ class MathematicalSpecialistChartsPage(QWidget):
         self.f1_chart = MatplotlibWidget()
         self.f1_chart.setObjectName('msTrainingChartFull')
         tab3_layout.addWidget(self.f1_chart, 1)
-        self.tab_widget.addTab(tab3, 'График обучения')
+        self.tab_widget.addTab(tab3, 'F1-score')
 
         tab4 = QWidget()
         tab4_layout = QVBoxLayout(tab4)
@@ -97,7 +97,7 @@ class MathematicalSpecialistChartsPage(QWidget):
         self.pr_auc_chart = MatplotlibWidget()
         self.pr_auc_chart.setObjectName('msTrainingChartFull')
         tab4_layout.addWidget(self.pr_auc_chart, 1)
-        self.tab_widget.addTab(tab4, 'График обучения')
+        self.tab_widget.addTab(tab4, 'PR-AUC')
 
         tab5 = QWidget()
         tab5_layout = QVBoxLayout(tab5)
